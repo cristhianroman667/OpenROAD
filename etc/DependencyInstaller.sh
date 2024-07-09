@@ -214,6 +214,7 @@ _installOrTools() {
     cd "${baseDir}"
 
     orToolsFile=or-tools_${arch}_${os}-${version}_cpp_v${orToolsVersionSmall}.tar.gz
+    orToolsFile=or-tools_${arch}_${os}-11_cpp_v${orToolsVersionSmall}.tar.gz
     wget https://github.com/google/or-tools/releases/download/v${orToolsVersionBig}/${orToolsFile}
     orToolsPath=${PREFIX:-"/opt/or-tools"}
     if command -v brew &> /dev/null; then
