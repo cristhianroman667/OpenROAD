@@ -46,6 +46,7 @@
 #include <set>
 #include <stack>
 #include <utility>
+#include <vector>
 
 #include "architecture.h"
 #include "detailed_orient.h"
@@ -67,7 +68,7 @@ namespace dpo {
 DetailedMgr::DetailedMgr(Architecture* arch,
                          Network* network,
                          RoutingParams* rt)
-    : arch_(arch), network_(network), rt_(rt), disallowOneSiteGaps_(false)
+    : arch_(arch), network_(network), rt_(rt)
 {
   singleRowHeight_ = arch_->getRow(0)->getHeight();
   numSingleHeightRows_ = arch_->getNumRows();
@@ -185,6 +186,9 @@ void DetailedMgr::findBlockages(const bool includeRouteBlockages)
   blockages_.resize(numSingleHeightRows_);
 
   for (Node* nd : fixedCells_) {
+    if (nd->isTerminal()) {
+      continue;
+    }
     int xmin = std::max(arch_->getMinX(), nd->getLeft());
     int xmax = std::min(arch_->getMaxX(), nd->getRight());
     const int ymin = std::max(arch_->getMinY(), nd->getBottom());
@@ -548,9 +552,7 @@ void DetailedMgr::findSegments()
     int originX = arch_->getRow(rowId)->getLeft();
     int siteSpacing = arch_->getRow(rowId)->getSiteSpacing();
 
-    int ix;
-
-    ix = (int) ((segment->getMinX() - originX) / siteSpacing);
+    int ix = (segment->getMinX() - originX) / siteSpacing;
     if (originX + ix * siteSpacing < segment->getMinX()) {
       ++ix;
     }
@@ -559,7 +561,7 @@ void DetailedMgr::findSegments()
       segment->setMinX(originX + ix * siteSpacing);
     }
 
-    ix = (int) ((segment->getMaxX() - originX) / siteSpacing);
+    ix = (segment->getMaxX() - originX) / siteSpacing;
     if (originX + ix * siteSpacing != segment->getMaxX()) {
       segment->setMaxX(originX + ix * siteSpacing);
     }
@@ -827,6 +829,10 @@ bool DetailedMgr::findClosestSpanOfSegments(Node* nd,
 
         DetailedSeg* segPtr = candidates_i[0];
 
+        // Work with bottom edge.
+        const double ymin = arch_->getRow(segPtr->getRowId())->getBottom();
+        const double dy = std::fabs(nd->getBottom() - ymin);
+
         int xmin = segPtr->getMinX();
         int xmax = segPtr->getMaxX();
         for (size_t j = 1; j < candidates_i.size(); j++) {
@@ -835,10 +841,6 @@ bool DetailedMgr::findClosestSpanOfSegments(Node* nd,
           xmax = std::min(xmax, segPtr->getMaxX());
         }
         const int width = xmax - xmin;
-
-        // Work with bottom edge.
-        const double ymin = arch_->getRow(segPtr->getRowId())->getBottom();
-        const double dy = std::fabs(nd->getBottom() - ymin);
 
         // Still work with cell center.
         const double ww = std::min(nd->getWidth(), width);
@@ -2909,16 +2911,11 @@ bool DetailedMgr::tryMove3(Node* ndi,
   // of the cell which should also correspond to the row in which the
   // segment is found.
   int rb = segments_[sj]->getRowId();
-  if (std::abs(yj - arch_->getRow(rb)->getBottom()) != 0) {
-    // Weird.
-    yj = arch_->getRow(rb)->getBottom();
-  }
   while (rb + spanned >= arch_->getRows().size()) {
     --rb;
   }
   // We might need to adjust the target position if we needed to move
   // the rows "down"...
-  yj = arch_->getRow(rb)->getBottom();
   const int rt = rb + spanned - 1;  // Cell would occupy rows [rb,rt].
 
   bool flip = false;

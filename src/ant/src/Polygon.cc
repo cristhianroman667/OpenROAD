@@ -31,6 +31,8 @@
 
 #include "Polygon.hh"
 
+#include <vector>
+
 #include "odb/dbShape.h"
 
 namespace ant {
@@ -66,9 +68,8 @@ std::vector<int> findNodesWithIntersection(const GraphNodes& graph_nodes,
   return ids;
 }
 
-void wiresToPolygonSetMap(
-    odb::dbWire* wires,
-    std::unordered_map<odb::dbTechLayer*, PolygonSet>& set_by_layer)
+void wiresToPolygonSetMap(odb::dbWire* wires,
+                          std::map<odb::dbTechLayer*, PolygonSet>& set_by_layer)
 {
   odb::dbShape shape;
   odb::dbWireShapeItr shapes_it;
@@ -99,9 +100,8 @@ void wiresToPolygonSetMap(
   }
 }
 
-void avoidPinIntersection(
-    odb::dbNet* db_net,
-    std::unordered_map<odb::dbTechLayer*, PolygonSet>& set_by_layer)
+void avoidPinIntersection(odb::dbNet* db_net,
+                          std::map<odb::dbTechLayer*, PolygonSet>& set_by_layer)
 {
   // iterate all instance pin
   for (odb::dbITerm* iterm : db_net->getITerms()) {

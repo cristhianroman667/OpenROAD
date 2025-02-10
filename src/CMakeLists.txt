@@ -174,6 +174,12 @@ include(UseSWIG)
 
 find_package(Boost REQUIRED)
 message(STATUS "boost: ${Boost_VERSION}")
+
+if (ENABLE_TESTS)
+  find_package(GTest REQUIRED)
+  message(STATUS "GTest: ${GTest_VERSION}")
+endif()
+
 find_package(Python3 COMPONENTS Development REQUIRED)
 option(BUILD_PYTHON "Build the Python3 interface" ON)
 
@@ -200,10 +206,26 @@ add_compile_options(
   $<$<BOOL:${ASAN}>:-fsanitize=address>
   $<$<BOOL:${ASAN}>:-fno-omit-frame-pointer>
   $<$<BOOL:${ASAN}>:-g>
+  $<$<BOOL:${TSAN}>:-fsanitize=thread>
+  $<$<BOOL:${TSAN}>:-g>
+  $<$<BOOL:${UBSAN}>:-fsanitize=undefined>
+  $<$<BOOL:${UBSAN}>:-g>
+  $<$<BOOL:${UBSAN}>:-fno-omit-frame-pointer>
 )
 
 if (ASAN)
   add_link_options(-fsanitize=address)
+  message(STATUS "Address Sanitizer is enabled")
+endif()
+
+if (TSAN)
+  add_link_options(-fsanitize=thread)
+  message(STATUS "Thread Sanitizer is enabled")
+endif()
+
+if (UBSAN)
+  add_link_options(-fsanitize=undefined)
+  message(STATUS "Undefined Behavior Sanitizer is enabled")
 endif()
 
 ################################################################
@@ -258,6 +280,7 @@ if (NOT USE_SYSTEM_OPENSTA)
   if (TCL_READLINE_LIBRARY AND TCL_READLINE_H)
     # Pass along tcl readline enablement to OpenSTA build
     set(USE_TCL_READLINE ON)
+    set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
   endif()
   add_subdirectory(sta)
 endif()
@@ -273,7 +296,6 @@ add_subdirectory(rmp)
 add_subdirectory(cts)
 add_subdirectory(grt)
 add_subdirectory(tap)
-add_subdirectory(mpl)
 add_subdirectory(rcx)
 add_subdirectory(psm)
 add_subdirectory(ant)
@@ -284,7 +306,7 @@ add_subdirectory(utl)
 add_subdirectory(dst)
 add_subdirectory(pdn)
 add_subdirectory(dft)
-add_subdirectory(mpl2)
+add_subdirectory(mpl)
 add_subdirectory(par)
 
 ################################################################
@@ -340,14 +362,13 @@ target_link_libraries(openroad
   gui
   drt
   dst
-  mpl
   psm
   ant
   upf
   utl
   pdn
   dft
-  mpl2
+  mpl
   par
   ${ABC_LIBRARY}
   ${TCL_LIBRARY}
@@ -403,6 +424,7 @@ if (Python3_FOUND AND BUILD_PYTHON)
       dbSta
       odb
       OpenSTA
+      ifp
   )
   target_link_libraries(openroad
     openroad_swig_py
@@ -413,7 +435,6 @@ if (Python3_FOUND AND BUILD_PYTHON)
     grt_py
     gpl_py
     dpl_py
-    mpl_py
     ppl_py
     tap_py
     cts_py
@@ -440,13 +461,6 @@ messages(
   LOCAL
 )
 
-# pad isn't a proper module with its own CMakeLists.txt so it
-# is handled here (just like the tcl encoding).
-messages(
-  TARGET openroad
-  OUTPUT_DIR pad
-)
-
 # Ancient versions of glibc found on CentOS required librt.
 # OSX has an empty version of librt that causes a link error,
 # so this is protected from linking there.
@@ -462,11 +476,6 @@ endif()
 
 # executable
 install(TARGETS openroad DESTINATION bin)
-
-
-if(BUILD_MAN)
-  install(DIRECTORY ${MANPAGE_DIR} DESTINATION ${CMAKE_INSTALL_PREFIX}/share/man)
-endif()
 
 ################################################################
 

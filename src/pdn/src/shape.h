@@ -36,26 +36,13 @@
 #include <boost/geometry/index/rtree.hpp>
 #include <map>
 #include <memory>
+#include <set>
 #include <vector>
 
+#include "odb/db.h"
 #include "odb/dbTypes.h"
 #include "odb/geom.h"
 #include "odb/geom_boost.h"
-
-namespace odb {
-class dbBlock;
-class dbBox;
-class dbNet;
-class dbTechLayer;
-class dbViaVia;
-class dbTechVia;
-class dbTechViaGenerateRule;
-class dbTechViaLayerRule;
-class dbRow;
-class dbSWire;
-class dbVia;
-class dbViaParams;
-}  // namespace odb
 
 namespace utl {
 class Logger;
@@ -63,7 +50,6 @@ class Logger;
 
 namespace pdn {
 
-namespace bg = boost::geometry;
 namespace bgi = boost::geometry::index;
 
 class Shape;
@@ -165,8 +151,10 @@ class Shape
   bool isSquare() const { return rect_.dx() == rect_.dy(); }
   bool isVertical() const { return rect_.dx() < rect_.dy(); }
 
+  virtual odb::dbTechLayerDir getLayerDirection() const;
+
   // true if shape can be removed by trimming
-  virtual bool isRemovable() const;
+  virtual bool isRemovable(bool assume_bterm) const;
   // true if shape can be modified (cut or shortened) by trimming
   virtual bool isModifiable() const;
 
@@ -303,9 +291,11 @@ class FollowPinShape : public Shape
   void updateTermConnections() override;
 
   // followpins cannot be removed
-  bool isRemovable() const override { return false; }
+  bool isRemovable(bool assume_bterm) const override { return false; }
 
   void setAllowsNonPreferredDirectionChange() override {}
+
+  odb::dbTechLayerDir getLayerDirection() const override;
 
   bool cut(const ObstructionTree& obstructions,
            const Grid* ignore_grid,

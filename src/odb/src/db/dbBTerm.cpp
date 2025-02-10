@@ -365,6 +365,10 @@ void dbBTerm::setSigType(dbSigType type)
     block->_journal->updateField(
         this, _dbBTerm::FLAGS, prev_flags, flagsToUInt(bterm));
   }
+
+  for (auto callback : block->_callbacks) {
+    callback->inDbBTermSetSigType(this, type);
+  }
 }
 
 dbSigType dbBTerm::getSigType()
@@ -495,6 +499,10 @@ void dbBTerm::connect(dbNet* net_)
                             net->_name);
   }
 
+  if (bterm->_net) {
+    disconnect();
+  }
+
   if (block->_journal) {
     debugPrint(block->getImpl()->getLogger(),
                utl::ODB,
@@ -510,9 +518,6 @@ void dbBTerm::connect(dbNet* net_)
     block->_journal->endAction();
   }
 
-  if (bterm->_net) {
-    bterm->disconnectNet(bterm, block);
-  }
   bterm->connectNet(net, block);
 }
 
@@ -531,20 +536,32 @@ void dbBTerm::disconnect()
           net->_name);
     }
 
+    auto mnet_id = 0;
+    if (bterm->_mnet) {
+      _dbModNet* mod_net = block->_modnet_tbl->getPtr(bterm->_mnet);
+      mnet_id = mod_net->getOID();
+    }
+
     if (block->_journal) {
       debugPrint(block->getImpl()->getLogger(),
                  utl::ODB,
                  "DB_ECO",
                  1,
-                 "ECO: disconnect Iterm {}",
+                 "ECO: disconnect bterm {}",
                  bterm->getId());
       block->_journal->beginAction(dbJournal::DISCONNECT_OBJECT);
       block->_journal->pushParam(dbBTermObj);
       block->_journal->pushParam(bterm->getId());
+      block->_journal->pushParam(net->getOID());
+      block->_journal->pushParam(mnet_id);
       block->_journal->endAction();
     }
 
     bterm->disconnectNet(bterm, block);
+
+    if (bterm->_mnet) {
+      bterm->disconnectModNet(bterm, block);
+    }
   }
 }
 

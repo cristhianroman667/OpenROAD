@@ -7,6 +7,7 @@
 #include "abc_library_factory.h"
 
 #include <cmath>
+#include <string>
 #include <unordered_set>
 #include <vector>
 
@@ -19,6 +20,7 @@
 #include "misc/util/utilNam.h"
 #include "map/scl/sclCon.h"
 // clang-format on
+#include "map/scl/sclLib.h"
 #include "sta/FuncExpr.hh"
 #include "sta/Liberty.hh"
 #include "sta/PortDirection.hh"
@@ -300,7 +302,7 @@ AbcLibraryFactory& AbcLibraryFactory::AddDbSta(sta::dbSta* db_sta)
   return *this;
 }
 
-utl::deleted_unique_ptr<abc::SC_Lib> AbcLibraryFactory::Build()
+AbcLibrary AbcLibraryFactory::Build()
 {
   if (!db_sta_) {
     logger_->error(utl::RMP, 15, "Build called with null sta library");
@@ -314,9 +316,11 @@ utl::deleted_unique_ptr<abc::SC_Lib> AbcLibraryFactory::Build()
     PopulateAbcSclLibFromSta(abc_library, library);
   }
   abc::Abc_SclLibNormalize(abc_library);
+  abc::Abc_SclHashCells(abc_library);
+  abc::Abc_SclLinkCells(abc_library);
 
-  return utl::deleted_unique_ptr<abc::SC_Lib>(
-      abc_library, [](abc::SC_Lib* lib) { abc::Abc_SclLibFree(lib); });
+  return AbcLibrary(utl::UniquePtrWithDeleter<abc::SC_Lib>(
+      abc_library, [](abc::SC_Lib* lib) { abc::Abc_SclLibFree(lib); }));
 }
 
 void AbcLibraryFactory::PopulateAbcSclLibFromSta(abc::SC_Lib* sc_library,
@@ -450,6 +454,109 @@ int AbcLibraryFactory::ScaleAbbreviationToExponent(
 
   logger_->error(
       utl::RMP, 13, "Can't convert scale abbreviation {}", scale_abbreviation);
+}
+
+bool AbcLibrary::IsSupportedCell(const std::string& cell_name)
+{
+  if (supported_cells_.empty()) {
+    int num_gates = abc::SC_LibCellNum(abc_library_.get());
+    for (int i = 0; i < num_gates; i++) {
+      abc::SC_Cell* cell = abc::SC_LibCell(abc_library_.get(), i);
+      supported_cells_.insert(cell->pName);
+    }
+  }
+  return supported_cells_.find(cell_name) != supported_cells_.end();
+}
+
+void AbcLibrary::InitializeConstGates()
+{
+  const_gates_initalized_ = true;
+  for (int i = 0; i < abc::SC_LibCellNum(abc_library_.get()); i++) {
+    abc::SC_Cell* current_cell = abc::SC_LibCell(abc_library_.get(), i);
+    if (current_cell->n_inputs != 0) {
+      continue;
+    }
+    if (current_cell->n_outputs != 1) {
+      continue;
+    }
+
+    abc::SC_Pin* pin = abc::SC_CellPin(current_cell, 0);
+    // In ABC land we store the right hand side of the truth
+    // table in a bit vector sort of thing. Since the const
+    // cell has less than 6 inputs its truth table should be
+    // in entry zero.
+    abc::word constant_0 = 0;
+    abc::word constant_1 = ~constant_0;
+    abc::word truth_table = abc::Vec_WrdEntry(&pin->vFunc, 0);
+    if (truth_table == constant_0) {
+      const0_gates_.insert(current_cell->pName);
+    }
+
+    if (truth_table == constant_1) {
+      const1_gates_.insert(current_cell->pName);
+    }
+  }
+}
+
+// Find cell matching truth table for constant cells either 0 or 1
+// where 1 is represented as all 1s in binary.
+abc::SC_Cell* FindConstantCell(abc::SC_Lib* library, abc::word constant)
+{
+  abc::SC_Cell* result = nullptr;
+  for (int i = 0; i < abc::SC_LibCellNum(library); i++) {
+    abc::SC_Cell* current_cell = abc::SC_LibCell(library, i);
+    if (current_cell->n_inputs != 0) {
+      continue;
+    }
+    if (current_cell->n_outputs != 1) {
+      continue;
+    }
+
+    abc::SC_Pin* pin = abc::SC_CellPin(current_cell, 0);
+    // In ABC land we store the right hand side of the truth
+    // table in a bit vector sort of thing. Since the const
+    // cell has less than 6 inputs its truth table should be
+    // in entry zero.
+    abc::word truth_table = abc::Vec_WrdEntry(&pin->vFunc, 0);
+    if (truth_table == constant) {
+      return current_cell;
+    }
+  }
+
+  return result;
+}
+
+abc::SC_Cell* AbcLibrary::ConstantZeroCell()
+{
+  abc::word constant_0 = 0;
+  return FindConstantCell(abc_library_.get(), constant_0);
+}
+
+abc::SC_Cell* AbcLibrary::ConstantOneCell()
+{
+  abc::word constant_0 = 0;
+  abc::word constant_1 = ~constant_0;
+  return FindConstantCell(abc_library_.get(), constant_1);
+}
+
+bool AbcLibrary::IsConst0Cell(const std::string& cell_name)
+{
+  if (!const_gates_initalized_) {
+    InitializeConstGates();
+  }
+  return const0_gates_.find(cell_name) != const0_gates_.end();
+}
+bool AbcLibrary::IsConst1Cell(const std::string& cell_name)
+{
+  if (!const_gates_initalized_) {
+    InitializeConstGates();
+  }
+  return const1_gates_.find(cell_name) != const1_gates_.end();
+}
+
+bool AbcLibrary::IsConstCell(const std::string& cell_name)
+{
+  return IsConst1Cell(cell_name) || IsConst0Cell(cell_name);
 }
 
 }  // namespace rmp

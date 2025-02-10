@@ -43,6 +43,8 @@ overflow values for recalculating weights can be modified with
 `-timing_driven_net_reweight_overflow`, you may use less overflow threshold 
 values to decrease runtime, for example.
 
+You can also set an overflow value for `keep_resize_below_overflow`, when below that, the modifications made by the rsz tool are maintained (non-virtual `repair_design`).
+
 When the routability-driven option is enabled, each of its iterations will 
 execute RUDY to provide an estimation of routing congestion. Congested tiles 
 will have the area of their logic cells inflated to reduce routing congestion. 
@@ -55,11 +57,11 @@ if the RC is not decreasing for three consecutive iterations.
 
 Routability-driven arguments
 - They begin with `-routability`.
-- `-routability_target_rc_metric`, `-routability_check_overflow`, `-routability_max_density`, `-routability_max_bloat_iter`, `-routability_max_inflation_iter`, `-routability_inflation_ratio_coef`, `-routability_max_inflation_ratio`, `-routability_rc_coefficients`
+- `-routability_target_rc_metric`, `-routability_check_overflow`, `-routability_max_density`, `-routability_max_inflation_iter`, `-routability_inflation_ratio_coef`, `-routability_max_inflation_ratio`, `-routability_rc_coefficients`
 
 Timing-driven arguments
 - They begin with `-timing_driven`.
-- `-timing_driven_net_reweight_overflow`, `-timing_driven_net_weight_max`, `-timing_driven_nets_percentage`
+- `-timing_driven_net_reweight_overflow`, `-timing_driven_net_weight_max`, `-timing_driven_nets_percentage`, `keep_resize_below_overflow`
 
 ```tcl
 global_placement
@@ -81,14 +83,12 @@ global_placement
     [-initial_place_max_fanout initial_place_max_fanout]
     [-pad_left pad_left]
     [-pad_right pad_right]
-    [-force_cpu]
     [-skip_io]
     [-skip_nesterov_place]
     [-routability_use_grt]
     [-routability_target_rc_metric routability_target_rc_metric]
     [-routability_check_overflow routability_check_overflow]
     [-routability_max_density routability_max_density]
-    [-routability_max_bloat_iter routability_max_bloat_iter]
     [-routability_max_inflation_iter routability_max_inflation_iter]    
     [-routability_inflation_ratio_coef routability_inflation_ratio_coef]
     [-routability_max_inflation_ratio routability_max_inflation_ratio]
@@ -96,6 +96,8 @@ global_placement
     [-timing_driven_net_reweight_overflow]
     [-timing_driven_net_weight_max]
     [-timing_driven_nets_percentage]
+    [-keep_resize_below_overflow]
+    [-disable_revert_if_diverge]
 ```
 
 #### Options
@@ -117,8 +119,8 @@ global_placement
 | `-initial_place_max_fanout` | Set net escape condition in initial place when $fanout \geq initial\_place\_max\_fanout$. The default value is 200. Allowed values are integers `[1, MAX_INT]`. |
 | `-pad_left` | Set left padding in terms of number of sites. The default value is 0, and the allowed values are integers `[1, MAX_INT]` |
 | `-pad_right` | Set right padding in terms of number of sites. The default value is 0, and the allowed values are integers `[1, MAX_INT]` |
-| `-force_cpu` | Force to use the CPU solver even if the GPU is available. |
 | `-skip_io` | Flag to ignore the IO ports when computing wirelength during placement. The default value is False, allowed values are boolean. |
+| `-disable_revert_if_diverge` | Flag to make gpl store the placement state along iterations, if a divergence is detected, gpl reverts to the snapshot state. The default value is disabled. |
 
 #### Routability-Driven Arguments
 
@@ -128,10 +130,9 @@ global_placement
 | `-routability_target_rc_metric` | Set target RC metric for routability mode. The algorithm will try to reach this RC value. The default value is `1.01`, and the allowed values are floats. |
 | `-routability_check_overflow` | Set overflow threshold for routability mode. The default value is `0.3`, and the allowed values are floats `[0, 1]`. |
 | `-routability_max_density` | Set density threshold for routability mode. The default value is `0.99`, and the allowed values are floats `[0, 1]`. |
-| `-routability_max_bloat_iter` | Set bloat iteration threshold for routability mode. The default value is `1`, and the allowed values are integers `[1, MAX_INT]`.|
 | `-routability_max_inflation_iter` | Set inflation iteration threshold for routability mode. The default value is `4`, and the allowed values are integers `[1, MAX_INT]`. |
-| `-routability_inflation_ratio_coef` | Set inflation ratio coefficient for routability mode. The default value is `5`, and the allowed values are floats. |
-| `-routability_max_inflation_ratio` | Set inflation ratio threshold for routability mode to prevent overly aggressive adjustments. The default value is `8`, and the allowed values are floats. |
+| `-routability_inflation_ratio_coef` | Set inflation ratio coefficient for routability mode. The default value is `3`, and the allowed values are floats. |
+| `-routability_max_inflation_ratio` | Set inflation ratio threshold for routability mode to prevent overly aggressive adjustments. The default value is `6`, and the allowed values are floats. |
 | `-routability_rc_coefficients` | Set routability RC coefficients for calculating the final RC. They relate to the 0.5%, 1%, 2%, and 5% most congested tiles. It comes in the form of a Tcl List `{k1, k2, k3, k4}`. The default value for each coefficient is `{1.0, 1.0, 0.0, 0.0}` respectively, and the allowed values are floats. |
 
 #### Timing-Driven Arguments
@@ -141,6 +142,7 @@ global_placement
 | `-timing_driven_net_reweight_overflow` | Set overflow threshold for timing-driven net reweighting. Allowed value is a Tcl list of integers where each number is `[0, 100]`. Default values are [79, 64, 49, 29, 21, 15] |
 | `-timing_driven_net_weight_max` | Set the multiplier for the most timing-critical nets. The default value is `1.9`, and the allowed values are floats. |
 | `-timing_driven_nets_percentage` | Set the reweighted percentage of nets in timing-driven mode. The default value is 10. Allowed values are floats `[0, 100]`. |
+| `-keep_resize_below_overflow` | When the overflow is below the set value, timing-driven iterations will retain the resizer changes instead of reverting them. The default value is 0.3. Allowed values are floats `[0, 1]`. |
 
 ### Cluster Flops
 
@@ -158,9 +160,9 @@ cluster_flops
 
 | Switch Name | Description |
 | ----- | ----- |
-| `-tray_weight` | Tray weight, default value is 20.0, type `float`. |
-| `-timing_weight` | Timing weight, default value is 1.0, type `float`. |
-| `-max_split_size` | Maximum split size, default value is -1, type `int`.|
+| `-tray_weight` | Tray weight, default value is 32.0, type `float`. |
+| `-timing_weight` | Timing weight, default value is 0.1, type `float`. |
+| `-max_split_size` | Maximum split size, default value is 500 (-1 for no decomposition), type `int`.|
 | `-num_paths` | KIV, default value is 0, type `int`. |
 
 
@@ -267,7 +269,10 @@ about this tool.
     (2015), pp. 685-698. [(.pdf)](https://cseweb.ucsd.edu/~jlu/papers/eplace-ms-tcad14/paper.pdf)
 -   A. B. Kahng, J. Li and L. Wang,   
     "Improved Flop Tray-Based Design Implementation for Power Reduction",   
-    IEEE/ACM ICCAD, 2016, pp. 20:1-20:8.   
+    IEEE/ACM ICCAD, 2016, pp. 20:1-20:8.    
+-   A. B. Kahng, S. Kundu, S. Thumathy,    
+    "Scalable Flip-Flop Clustering Using Divide and Conquer For Capacitated K-Means".   
+    ACM GLSVLSI, 2024, pp. 177-184.[(.pdf)](https://vlsicad.ucsd.edu/Publications/Conferences/409/c409.pdf)      
 -   The timing-driven mode has been implemented by
     Mingyu Woo (only available in [legacy repo in standalone
     branch](https://github.com/The-OpenROAD-Project/RePlAce/tree/standalone).)

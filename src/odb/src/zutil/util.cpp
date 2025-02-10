@@ -35,8 +35,10 @@
 #include <map>
 #include <numeric>
 #include <string>
+#include <vector>
 
 #include "odb/db.h"
+#include "odb/dbCCSegSet.h"
 #include "odb/dbShape.h"
 #include "utl/Logger.h"
 
@@ -259,25 +261,31 @@ std::string generateMacroPlacementString(dbBlock* block)
 {
   std::string macro_placement;
 
-  const float dbu = block->getTech()->getDbUnitsPerMicron();
-  float x = 0.0f;
-  float y = 0.0f;
-
   for (odb::dbInst* inst : block->getInsts()) {
     if (inst->isBlock()) {
-      x = (inst->getLocation().x()) / dbu;
-      y = (inst->getLocation().y()) / dbu;
-
       macro_placement += fmt::format(
           "place_macro -macro_name {} -location {{{} {}}} -orientation {}\n",
           inst->getName(),
-          x,
-          y,
+          block->dbuToMicrons(inst->getLocation().x()),
+          block->dbuToMicrons(inst->getLocation().y()),
           inst->getOrient().getString());
     }
   }
 
   return macro_placement;
+}
+
+bool hasOneSiteMaster(dbDatabase* db)
+{
+  for (dbLib* lib : db->getLibs()) {
+    for (dbMaster* master : lib->getMasters()) {
+      if (master->getSite()->getWidth() == master->getWidth()) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 int64_t WireLengthEvaluator::hpwl() const

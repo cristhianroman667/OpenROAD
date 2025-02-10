@@ -38,6 +38,7 @@
 #include <iomanip>
 #include <iostream>
 #include <sstream>
+#include <vector>
 
 #include "graphics.h"
 #include "nesterovBase.h"
@@ -71,6 +72,12 @@ NesterovPlace::NesterovPlace(const NesterovPlaceVars& npVars,
   tb_ = std::move(tb);
   log_ = log;
 
+  db_cbk_ = std::make_unique<nesterovDbCbk>(this);
+  nbc_->setCbk(db_cbk_.get());
+  if (npVars_.timingDrivenMode) {
+    db_cbk_->addOwner(pbc_->db()->getChip()->getBlock());
+  }
+
   if (npVars.debug && Graphics::guiActive()) {
     graphics_ = std::make_unique<Graphics>(log_,
                                            this,
@@ -79,7 +86,8 @@ NesterovPlace::NesterovPlace(const NesterovPlaceVars& npVars,
                                            pbVec,
                                            nbVec,
                                            npVars_.debug_draw_bins,
-                                           npVars.debug_inst);
+                                           npVars.debug_inst,
+                                           npVars.debug_start_iter);
   }
   init();
 }
@@ -306,17 +314,18 @@ int NesterovPlace::doNesterovPlace(int start_iter)
     return 0;
   }
 
-  if (graphics_) {
+  if (graphics_ && npVars_.debug_start_iter == 0) {
     graphics_->cellPlot(true);
   }
 
-  // snapshot saving detection
-  bool isSnapshotSaved = false;
-
-  // snapshot info
-  float snapshotA = 0;
-  float snapshotWlCoefX = 0, snapshotWlCoefY = 0;
+  // routability snapshot info
+  bool is_routability_snapshot_saved = false;
+  float route_snapshotA = 0;
+  float route_snapshot_WlCoefX = 0, route_snapshot_WlCoefY = 0;
   bool isDivergeTriedRevert = false;
+
+  // divergence snapshot info
+  float diverge_snapshot_WlCoefX = 0, diverge_snapshot_WlCoefY = 0;
 
   // backTracking variable.
   float curA = 1.0;
@@ -334,7 +343,6 @@ int NesterovPlace::doNesterovPlace(int start_iter)
 
     // here, prevA is a_(k), curA is a_(k+1)
     // See, the ePlace-MS paper's Algorithm 1
-    //
     curA = (1.0 + sqrt(4.0 * prevA * prevA + 1.0)) * 0.5;
 
     // coeff is (a_k - 1) / ( a_(k+1) ) in paper.
@@ -404,10 +412,20 @@ int NesterovPlace::doNesterovPlace(int start_iter)
 
     updateNextIter(iter);
 
+    if (!npVars_.disableRevertIfDiverge) {
+      if (is_min_hpwl_) {
+        diverge_snapshot_WlCoefX = wireLengthCoefX_;
+        diverge_snapshot_WlCoefY = wireLengthCoefY_;
+        for (auto& nb : nbVec_) {
+          nb->snapshot();
+        }
+      }
+    }
+
     // For JPEG Saving
     // debug
-
-    if (graphics_) {
+    const int debug_start_iter = npVars_.debug_start_iter;
+    if (graphics_ && (debug_start_iter == 0 || iter + 1 >= debug_start_iter)) {
       bool update
           = (iter == 0 || (iter + 1) % npVars_.debug_update_iterations == 0);
       if (update) {
@@ -418,7 +436,8 @@ int NesterovPlace::doNesterovPlace(int start_iter)
     }
 
     // timing driven feature
-    // do reweight on timing-critical nets.
+    // if virtual, do reweight on timing-critical nets,
+    // otherwise keep all modifications by rsz.
     if (npVars_.timingDrivenMode
         && tb_->isTimingNetWeightOverflow(average_overflow_)) {
       // update db's instance location from current density coordinates
@@ -429,9 +448,68 @@ int NesterovPlace::doNesterovPlace(int start_iter)
       // and update GNet's weights from worst timing paths.
       //
       // See timingBase.cpp in detail
-      log_->info(
-          GPL, 100, "Timing-driven: executing resizer for reweighting nets.");
-      bool shouldTdProceed = tb_->updateGNetWeights(average_overflow_);
+      bool virtual_td_iter
+          = (average_overflow_ > npVars_.keepResizeBelowOverflow);
+
+      log_->info(GPL,
+                 100,
+                 "Timing-driven iteration {}/{}, virtual: {}.",
+                 ++npVars_.timingDrivenIterCounter,
+                 tb_->getTimingNetWeightOverflowSize(),
+                 virtual_td_iter);
+
+      log_->info(GPL,
+                 101,
+                 "Iter: {}, overflow: {:.3f}, keep rsz at: {}",
+                 iter,
+                 average_overflow_,
+                 npVars_.keepResizeBelowOverflow);
+
+      if (!virtual_td_iter) {
+        db_cbk_->addOwner(pbc_->db()->getChip()->getBlock());
+      } else {
+        db_cbk_->removeOwner();
+      }
+
+      auto block = pbc_->db()->getChip()->getBlock();
+      bool shouldTdProceed = tb_->updateGNetWeights(virtual_td_iter);
+
+      if (!virtual_td_iter) {
+        for (auto& nesterov : nbVec_) {
+          nesterov->updateGCellState(wireLengthCoefX_, wireLengthCoefY_);
+          // updates order in routability:
+          // 1. change areas
+          // 2. set target density with delta area
+          // 3. updateareas
+          // 4. updateDensitySize
+
+          nesterov->setTargetDensity(
+              static_cast<float>(nbc_->getDeltaArea()
+                                 + nesterov->nesterovInstsArea()
+                                 + nesterov->totalFillerArea())
+              / static_cast<float>(nesterov->whiteSpaceArea()));
+
+          float rsz_delta_area_microns
+              = block->dbuAreaToMicrons(nbc_->getDeltaArea());
+          float rsz_delta_area_percentage
+              = (nbc_->getDeltaArea()
+                 / static_cast<float>(nesterov->nesterovInstsArea()))
+                * 100.0f;
+          log_->info(
+              GPL,
+              107,
+              "Timing-driven: repair_design delta area: {:.3f} um^2 ({:+.2f}%)",
+              rsz_delta_area_microns,
+              rsz_delta_area_percentage);
+          log_->info(GPL,
+                     108,
+                     "Timing-driven: new target density: {}",
+                     nesterov->targetDensity());
+          nbc_->resetDeltaArea();
+          nesterov->updateAreas();
+          nesterov->updateDensitySize();
+        }
+      }
 
       // problem occured
       // escape timing driven later
@@ -462,13 +540,10 @@ int NesterovPlace::doNesterovPlace(int start_iter)
       if (!isDivergeTriedRevert && rb_->numCall() >= 1) {
         // get back to the working rc size
         rb_->revertGCellSizeToMinRc();
-
-        curA = snapshotA;
-        wireLengthCoefX_ = snapshotWlCoefX;
-        wireLengthCoefY_ = snapshotWlCoefY;
-
+        curA = route_snapshotA;
+        wireLengthCoefX_ = route_snapshot_WlCoefX;
+        wireLengthCoefY_ = route_snapshot_WlCoefY;
         nbc_->updateWireLengthForceWA(wireLengthCoefX_, wireLengthCoefY_);
-
         for (auto& nb : nbVec_) {
           nb->revertDivergence();
         }
@@ -479,27 +554,46 @@ int NesterovPlace::doNesterovPlace(int start_iter)
         isDivergeTriedRevert = true;
         // turn off the RD forcely
         isRoutabilityNeed_ = false;
+      } else if (!npVars_.disableRevertIfDiverge) {
+        // In case diverged and not in routability mode, finish with min hpwl
+        // stored since overflow below 0.25
+        log_->warn(GPL,
+                   90,
+                   "Divergence detected, reverting to snapshot with min hpwl.");
+        log_->warn(GPL,
+                   91,
+                   "Revert to iter: {:4d} overflow: {:.3f} HPWL: {}",
+                   diverge_snapshot_iter_,
+                   diverge_snapshot_average_overflow_unscaled_,
+                   min_hpwl_);
+        wireLengthCoefX_ = diverge_snapshot_WlCoefX;
+        wireLengthCoefY_ = diverge_snapshot_WlCoefY;
+        nbc_->updateWireLengthForceWA(wireLengthCoefX_, wireLengthCoefY_);
+        for (auto& nb : nbVec_) {
+          nb->revertDivergence();
+        }
+        isDiverged_ = false;
+        break;
       } else {
-        // no way to revert
         break;
       }
     }
 
-    if (!isSnapshotSaved && npVars_.routabilityDrivenMode
+    if (!is_routability_snapshot_saved && npVars_.routabilityDrivenMode
         && 0.6 >= average_overflow_unscaled_) {
-      snapshotWlCoefX = wireLengthCoefX_;
-      snapshotWlCoefY = wireLengthCoefY_;
-      snapshotA = curA;
-      isSnapshotSaved = true;
+      route_snapshot_WlCoefX = wireLengthCoefX_;
+      route_snapshot_WlCoefY = wireLengthCoefY_;
+      route_snapshotA = curA;
+      is_routability_snapshot_saved = true;
 
       for (auto& nb : nbVec_) {
         nb->snapshot();
       }
 
-      log_->report("[NesterovSolve] Snapshot saved at iter = {}", iter);
+      log_->info(GPL, 88, "Routability snapshot saved at iter = {}", iter);
     }
 
-    // check routability using GR
+    // check routability using RUDY or GR
     if (npVars_.routabilityDrivenMode && isRoutabilityNeed_
         && npVars_.routabilityCheckOverflow >= average_overflow_unscaled_) {
       // recover the densityPenalty values
@@ -513,9 +607,9 @@ int NesterovPlace::doNesterovPlace(int start_iter)
         // cutFillerCoordinates();
 
         // revert back the current density penality
-        curA = snapshotA;
-        wireLengthCoefX_ = snapshotWlCoefX;
-        wireLengthCoefY_ = snapshotWlCoefY;
+        curA = route_snapshotA;
+        wireLengthCoefX_ = route_snapshot_WlCoefX;
+        wireLengthCoefY_ = route_snapshot_WlCoefY;
 
         nbc_->updateWireLengthForceWA(wireLengthCoefX_, wireLengthCoefY_);
 
@@ -523,7 +617,7 @@ int NesterovPlace::doNesterovPlace(int start_iter)
           nb->revertDivergence();
           nb->resetMinSumOverflow();
         }
-        log_->report("[NesterovSolve] Revert back to snapshot coordi");
+        log_->info(GPL, 89, "Routability: revert back to snapshot");
       }
     }
 
@@ -551,6 +645,9 @@ int NesterovPlace::doNesterovPlace(int start_iter)
     graphics_->cellPlot(true);
   }
 
+  if (db_cbk_ != nullptr) {
+    db_cbk_->removeOwner();
+  }
   return iter;
 }
 
@@ -586,11 +683,136 @@ void NesterovPlace::updateNextIter(const int iter)
 
   // For coefficient, using average regions' overflow
   updateWireLengthCoef(average_overflow_);
+
+  // Update divergence snapshot
+  if (!npVars_.disableRevertIfDiverge) {
+    int64_t hpwl = nbc_->getHpwl();
+    if (hpwl < min_hpwl_ && average_overflow_unscaled_ <= 0.25) {
+      min_hpwl_ = hpwl;
+      diverge_snapshot_average_overflow_unscaled_ = average_overflow_unscaled_;
+      diverge_snapshot_iter_ = iter;
+      is_min_hpwl_ = true;
+    } else {
+      is_min_hpwl_ = false;
+    }
+  }
 }
 
 void NesterovPlace::updateDb()
 {
   nbc_->updateDbGCells();
+}
+
+nesterovDbCbk::nesterovDbCbk(NesterovPlace* nesterov_place)
+    : nesterov_place_(nesterov_place)
+{
+}
+
+void NesterovPlace::createGCell(odb::dbInst* db_inst)
+{
+  auto gcell_index = nbc_->createGCell(db_inst);
+  for (auto& nesterov : nbVec_) {
+    // TODO: manage regions, not every NB should create a
+    // gcell.
+    nesterov->createGCell(db_inst, gcell_index, rb_.get());
+  }
+}
+
+void NesterovPlace::destroyGCell(odb::dbInst* db_inst)
+{
+  for (auto& nesterov : nbVec_) {
+    nesterov->destroyGCell(db_inst);
+  }
+}
+
+void NesterovPlace::createGNet(odb::dbNet* db_net)
+{
+  odb::dbSigType netType = db_net->getSigType();
+  if (!isValidSigType(netType)) {
+    log_->report("db_net:{} is not signal or clock: {}",
+                 db_net->getName(),
+                 db_net->getSigType().getString());
+    return;
+  }
+  nbc_->createGNet(db_net, pbc_->skipIoMode());
+}
+
+void NesterovPlace::destroyGNet(odb::dbNet* db_net)
+{
+  nbc_->destroyGNet(db_net);
+}
+
+void NesterovPlace::createITerm(odb::dbITerm* iterm)
+{
+  if (!isValidSigType(iterm->getSigType())) {
+    return;
+  }
+  nbc_->createITerm(iterm);
+}
+
+void NesterovPlace::destroyITerm(odb::dbITerm* iterm)
+{
+  if (!isValidSigType(iterm->getSigType())) {
+    log_->report("iterm:{} is not signal or clock: {}",
+                 iterm->getName('|'),
+                 iterm->getSigType().getString());
+    return;
+  }
+  nbc_->destroyITerm(iterm);
+}
+
+void NesterovPlace::resizeGCell(odb::dbInst* db_inst)
+{
+  nbc_->resizeGCell(db_inst);
+}
+
+void NesterovPlace::moveGCell(odb::dbInst* db_inst)
+{
+  nbc_->moveGCell(db_inst);
+}
+
+void nesterovDbCbk::inDbInstSwapMasterAfter(odb::dbInst* db_inst)
+{
+  nesterov_place_->resizeGCell(db_inst);
+}
+
+void nesterovDbCbk::inDbPostMoveInst(odb::dbInst* db_inst)
+{
+  nesterov_place_->moveGCell(db_inst);
+}
+
+void nesterovDbCbk::inDbInstCreate(odb::dbInst* db_inst)
+{
+  nesterov_place_->createGCell(db_inst);
+}
+
+// TODO: use the region to create new gcell.
+void nesterovDbCbk::inDbInstCreate(odb::dbInst* db_inst, odb::dbRegion* region)
+{
+}
+
+void nesterovDbCbk::inDbInstDestroy(odb::dbInst* db_inst)
+{
+  nesterov_place_->destroyGCell(db_inst);
+}
+
+void nesterovDbCbk::inDbITermCreate(odb::dbITerm* iterm)
+{
+  nesterov_place_->createITerm(iterm);
+}
+
+void nesterovDbCbk::inDbITermDestroy(odb::dbITerm* iterm)
+{
+  nesterov_place_->destroyITerm(iterm);
+}
+
+void nesterovDbCbk::inDbNetCreate(odb::dbNet* db_net)
+{
+  nesterov_place_->createGNet(db_net);
+}
+
+void nesterovDbCbk::inDbNetDestroy(odb::dbNet* db_net)
+{
 }
 
 }  // namespace gpl

@@ -32,6 +32,8 @@
 
 #include "grid_component.h"
 
+#include <vector>
+
 #include "connect.h"
 #include "grid.h"
 #include "odb/db.h"
@@ -437,6 +439,19 @@ void GridComponent::checkLayerWidth(odb::dbTechLayer* layer,
                          widths);
     }
   }
+
+  odb::dbTech* tech = layer->getTech();
+  if (tech->hasManufacturingGrid()) {
+    const int double_grid = 2 * tech->getManufacturingGrid();
+    if (width % double_grid != 0) {
+      getLogger()->error(
+          utl::PDN,
+          117,
+          "Width ({:.4f} um) specified must be a multiple of {:.4f} um.",
+          tech_layer.dbuToMicron(width),
+          tech_layer.dbuToMicron(double_grid));
+    }
+  }
 }
 
 void GridComponent::checkLayerSpacing(
@@ -457,6 +472,19 @@ void GridComponent::checkLayerSpacing(
                        tech_layer.dbuToMicron(spacing),
                        layer->getName(),
                        tech_layer.dbuToMicron(min_spacing));
+  }
+
+  odb::dbTech* tech = layer->getTech();
+  if (tech->hasManufacturingGrid()) {
+    const int grid = tech->getManufacturingGrid();
+    if (spacing % grid != 0) {
+      getLogger()->error(
+          utl::PDN,
+          118,
+          "Spacing ({:.4f} um) specified must be a multiple of {:.4f} um.",
+          tech_layer.dbuToMicron(spacing),
+          tech_layer.dbuToMicron(grid));
+    }
   }
 }
 

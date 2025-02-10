@@ -20,11 +20,14 @@ add_library(lefin
     lefTechLayerForbiddenSpacingRuleParser.cpp
     lefTechLayerTwoWiresForbiddenSpcRuleParser.cpp
     lefMacroClassParser.cpp
+    lefMacroEdgeTypeParser.cpp
+    CellEdgeSpacingTableParser.cpp
     ArraySpacingParser.cpp
     WidthTableParser.cpp
     MinCutParser.cpp
     MetalWidthViaMapParser.cpp
     KeepOutZoneParser.cpp
+    MaxSpacingParser.cpp
 )
 
 target_include_directories(lefin

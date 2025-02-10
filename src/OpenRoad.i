@@ -36,8 +36,6 @@
 %{
 
 #include "odb/db.h"
-#include "odb/lefin.h"
-#include "odb/defin.h"
 #include "odb/defout.h"
 #include "sta/Report.hh"
 #include "sta/Network.hh"
@@ -138,13 +136,6 @@ getMacroPlacer()
 {
   OpenRoad *openroad = getOpenRoad();
   return openroad->getMacroPlacer();
-}
-
-mpl2::MacroPlacer2 *
-getMacroPlacer2()
-{
-  OpenRoad *openroad = getOpenRoad();
-  return openroad->getMacroPlacer2();
 }
 
 gpl::Replace*
@@ -257,6 +248,8 @@ using odb::dbTech;
 //
 ////////////////////////////////////////////////////////////////
 
+%include <std_string.i>
+
 #ifdef SWIGTCL
 %include "Exception.i"
 
@@ -319,12 +312,6 @@ const bool
 openroad_gui_compiled()
 {
   return ord::OpenRoad::getGUICompileOption();
-}
-
-const bool
-openroad_charts_compiled()
-{
-  return ord::OpenRoad::getChartsCompileOption();
 }
 
 void
@@ -397,10 +384,10 @@ write_cdl_cmd(const char *outFilename,
 }
 
 void
-read_db_cmd(const char *filename)
+read_db_cmd(const char *filename, bool hierarchy)
 {
   OpenRoad *ord = getOpenRoad();
-  ord->readDb(filename);
+  ord->readDb(filename,hierarchy);
 }
 
 void
@@ -612,6 +599,18 @@ void design_created()
 {
   OpenRoad *ord = getOpenRoad();
   ord->designCreated();
+}
+
+std::string get_exe_path()
+{
+  OpenRoad *ord = getOpenRoad();
+  return ord->getExePath();
+}
+
+std::string get_docs_path()
+{
+  OpenRoad *ord = getOpenRoad();
+  return ord->getDocsPath();
 }
 
 }

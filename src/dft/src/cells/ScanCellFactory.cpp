@@ -33,6 +33,7 @@
 #include "ScanCellFactory.hh"
 
 #include <iostream>
+#include <vector>
 
 #include "ClockDomain.hh"
 #include "Utils.hh"
@@ -59,21 +60,32 @@ sta::LibertyCell* GetLibertyCell(odb::dbMaster* master,
   return db_network->libertyCell(master_cell);
 }
 
-sta::TestCell* GetTestCell(odb::dbMaster* master, sta::dbNetwork* db_network)
+sta::TestCell* GetTestCell(odb::dbMaster* master,
+                           sta::dbNetwork* db_network,
+                           utl::Logger* logger)
 {
   sta::LibertyCell* liberty_cell = GetLibertyCell(master, db_network);
+  if (liberty_cell == nullptr) {
+    logger->warn(utl::DFT,
+                 11,
+                 "Cell master '{:s}' has no lib info. Can't find scan cell",
+                 master->getName());
+    return nullptr;
+  }
   sta::TestCell* test_cell = liberty_cell->testCell();
-  if (test_cell && test_cell->scanIn() != nullptr
-      && test_cell->scanEnable() != nullptr) {
+  if (test_cell && getLibertyScanIn(test_cell) != nullptr
+      && getLibertyScanEnable(test_cell) != nullptr) {
     return test_cell;
   }
   return nullptr;
 }
 
-TypeOfCell IdentifyCell(odb::dbInst* inst)
+TypeOfCell IdentifyCell(odb::dbInst* inst, sta::dbSta* sta)
 {
-  odb::dbMaster* master = inst->getMaster();
-  if (master->isSequential() && !master->isBlock()) {
+  sta::dbNetwork* db_network = sta->getDbNetwork();
+  sta::LibertyCell* liberty_cell
+      = GetLibertyCell(inst->getMaster(), db_network);
+  if (liberty_cell->hasSequentials() && !inst->getMaster()->isBlock()) {
     // we assume that we are only dealing with one bit cells, but in the future
     // we could deal with multibit cells too
     return TypeOfCell::OneBitCell;
@@ -107,9 +119,17 @@ std::unique_ptr<ClockDomain> GetClockDomainFromClock(
 }
 
 std::unique_ptr<ClockDomain> FindOneBitCellClockDomain(odb::dbInst* inst,
-                                                       sta::dbSta* sta)
+                                                       sta::dbSta* sta,
+                                                       utl::Logger* logger)
 {
   std::vector<odb::dbITerm*> clock_pins = utils::GetClockPin(inst);
+  if (clock_pins.empty()) {
+    logger->warn(utl::DFT,
+                 49,
+                 "Can't find a clock pin for cell '{:s}'",
+                 inst->getName());
+    return nullptr;
+  }
   sta::dbNetwork* db_network = sta->getDbNetwork();
   // A one bit cell should only have one clock pin
 
@@ -130,8 +150,8 @@ std::unique_ptr<OneBitScanCell> CreateOneBitCell(odb::dbInst* inst,
 {
   sta::dbNetwork* db_network = sta->getDbNetwork();
   std::unique_ptr<ClockDomain> clock_domain
-      = FindOneBitCellClockDomain(inst, sta);
-  sta::TestCell* test_cell = GetTestCell(inst->getMaster(), db_network);
+      = FindOneBitCellClockDomain(inst, sta, logger);
+  sta::TestCell* test_cell = GetTestCell(inst->getMaster(), db_network, logger);
 
   if (!clock_domain) {
     logger->warn(utl::DFT,
@@ -165,7 +185,7 @@ std::unique_ptr<ScanCell> ScanCellFactory(odb::dbInst* inst,
                                           sta::dbSta* sta,
                                           utl::Logger* logger)
 {
-  TypeOfCell type_of_cell = IdentifyCell(inst);
+  TypeOfCell type_of_cell = IdentifyCell(inst, sta);
 
   switch (type_of_cell) {
     case TypeOfCell::OneBitCell:

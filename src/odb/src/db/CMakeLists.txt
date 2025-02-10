@@ -36,6 +36,7 @@ add_library(db
     dbInstShapeItr.cpp 
     dbTransform.cpp 
     dbITermShapeItr.cpp 
+    dbPolygonItr.cpp
     dbSWire.cpp 
     dbSBox.cpp 
     dbSWireItr.cpp 
@@ -46,8 +47,6 @@ add_library(db
     dbCCSegItr.cpp 
     dbWireShapeItr.cpp 
     dbWirePathItr.cpp 
-    dbTarget.cpp 
-    dbTargetItr.cpp 
     dbTechNonDefaultRule.cpp 
     dbTechLayerRule.cpp 
     dbCapNode.cpp 
@@ -76,6 +75,7 @@ add_library(db
     dbNameCache.cpp 
     dbProperty.cpp 
     dbPropertyItr.cpp 
+    geom.cpp
     tmg_conn.cpp
     tmg_conn_g.cpp
     tmg_conn_s.cpp
@@ -83,16 +83,29 @@ add_library(db
     wOrder.cpp
     dbGroupPowerNetItr.cpp
     dbGroupGroundNetItr.cpp
+    dbGDSLib.cpp
     # Generator Code Begin cpp
     dbAccessPoint.cpp
+    dbBusPort.cpp
+    dbCellEdgeSpacing.cpp
     dbDft.cpp
     dbGCellGrid.cpp
+    dbGDSARef.cpp
+    dbGDSBoundary.cpp
+    dbGDSBox.cpp
+    dbGDSPath.cpp
+    dbGDSSRef.cpp
+    dbGDSStructure.cpp
+    dbGDSText.cpp
     dbGlobalConnect.cpp
     dbGroup.cpp
     dbGuide.cpp
     dbIsolation.cpp
     dbLevelShifter.cpp
     dbLogicPort.cpp
+    dbMarker.cpp
+    dbMarkerCategory.cpp
+    dbMasterEdgeType.cpp
     dbMetalWidthViaMap.cpp
     dbModBTerm.cpp
     dbModInst.cpp
@@ -100,6 +113,7 @@ add_library(db
     dbModNet.cpp
     dbModule.cpp
     dbNetTrack.cpp
+    dbPolygon.cpp
     dbPowerDomain.cpp
     dbPowerSwitch.cpp
     dbScanChain.cpp
@@ -120,6 +134,7 @@ add_library(db
     dbTechLayerEolKeepOutRule.cpp
     dbTechLayerForbiddenSpacingRule.cpp
     dbTechLayerKeepOutZoneRule.cpp
+    dbTechLayerMaxSpacingRule.cpp
     dbTechLayerMinCutRule.cpp
     dbTechLayerMinStepRule.cpp
     dbTechLayerSpacingEolRule.cpp
@@ -131,6 +146,7 @@ add_library(db
     dbGroupItr.cpp
     dbGroupModInstItr.cpp
     dbGuideItr.cpp
+    dbModuleBusPortModBTermItr.cpp
     dbModuleInstItr.cpp
     dbModuleModBTermItr.cpp
     dbModuleModInstItr.cpp
@@ -140,6 +156,7 @@ add_library(db
     dbModuleModNetItr.cpp
     dbModuleModNetModBTermItr.cpp
     dbModuleModNetModITermItr.cpp
+    dbModulePortItr.cpp
     dbNetTrackItr.cpp
     dbRegionGroupItr.cpp
     # Generator Code End cpp
@@ -162,9 +179,4 @@ target_link_libraries(db
         zutil
         utl_lib
         ${TCL_LIBRARY}
-)
-
-messages(
-  TARGET db
-  OUTPUT_DIR ../..
 )

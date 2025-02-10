@@ -41,9 +41,38 @@ namespace dpl {
 using odb::dbOrientType;
 using odb::dbSite;
 
+struct Edge
+{
+  Edge(unsigned int type, const odb::Rect& box)
+      : edge_type_idx_(type), bbox_(box)
+  {
+  }
+  unsigned int getEdgeType() const { return edge_type_idx_; }
+  const odb::Rect& getBBox() const { return bbox_; }
+
+ private:
+  unsigned int edge_type_idx_;
+  odb::Rect bbox_;
+};
+
+struct EdgeSpacingEntry
+{
+  EdgeSpacingEntry(const int spc_in,
+                   const bool is_exact_in,
+                   const bool except_abutted_in)
+      : spc(spc_in), is_exact(is_exact_in), except_abutted(except_abutted_in)
+  {
+  }
+  bool operator<(const EdgeSpacingEntry& rhs) const { return spc < rhs.spc; }
+  int spc;
+  bool is_exact;
+  bool except_abutted;
+};
+
 struct Master
 {
   bool is_multi_row = false;
+  std::vector<Edge> edges_;
 };
 
 struct Cell
@@ -70,8 +99,6 @@ struct Cell
   bool hold_ = false;
   Group* group_ = nullptr;
   Rect* region_ = nullptr;  // group rect
-
-  static Cell dummy_cell;
 };
 
 struct Group

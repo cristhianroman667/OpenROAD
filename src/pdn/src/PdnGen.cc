@@ -37,6 +37,7 @@
 
 #include <map>
 #include <set>
+#include <vector>
 
 #include "connect.h"
 #include "domain.h"
@@ -56,14 +57,6 @@
 namespace pdn {
 
 using utl::Logger;
-
-using odb::dbBlock;
-using odb::dbInst;
-using odb::dbMaster;
-using odb::dbMTerm;
-using odb::dbNet;
-
-using utl::PDN;
 
 PdnGen::PdnGen() : db_(nullptr), logger_(nullptr)
 {
@@ -253,7 +246,7 @@ void PdnGen::trimShapes()
 
         auto* component = shape->getGridComponent();
         if (new_shape == nullptr) {
-          if (shape->isRemovable()) {
+          if (shape->isRemovable(is_pin_layer)) {
             component->removeShape(shape.get());
           }
         } else {
@@ -575,7 +568,8 @@ void PdnGen::makeRing(Grid* grid,
                       const std::array<int, 4>& pad_offset,
                       bool extend,
                       const std::vector<odb::dbTechLayer*>& pad_pin_layers,
-                      const std::vector<odb::dbNet*>& nets)
+                      const std::vector<odb::dbNet*>& nets,
+                      bool allow_out_of_die)
 {
   std::array<Rings::Layer, 2> layers{Rings::Layer{layer0, width0, spacing0},
                                      Rings::Layer{layer1, width1, spacing1}};
@@ -588,6 +582,9 @@ void PdnGen::makeRing(Grid* grid,
   ring->setExtendToBoundary(extend);
   if (starts_with != GRID) {
     ring->setStartWithPower(starts_with == POWER);
+  }
+  if (allow_out_of_die) {
+    ring->setAllowOutsideDieArea();
   }
   ring->setNets(nets);
   grid->addRing(std::move(ring));
@@ -794,18 +791,22 @@ void PdnGen::writeToDb(bool add_pins, const std::string& report_file) const
     }
   }
 
-  if (!report_file.empty()) {
-    std::ofstream file(report_file);
-    if (!file) {
-      logger_->warn(
-          utl::PDN, 228, "Unable to open \"{}\" to write.", report_file);
-      return;
-    }
+  // remove stale results
+  odb::dbMarkerCategory* category = block->findMarkerCategory("PDN");
+  if (category != nullptr) {
+    odb::dbMarkerCategory::destroy(category);
+  }
 
-    for (auto* grid : getGrids()) {
-      for (const auto& connect : grid->getConnect()) {
-        connect->writeFailedVias(file);
-      }
+  for (auto* grid : getGrids()) {
+    for (const auto& connect : grid->getConnect()) {
+      connect->recordFailedVias();
+    }
+  }
+
+  if (!report_file.empty()) {
+    odb::dbMarkerCategory* category = block->findMarkerCategory("PDN");
+    if (category != nullptr) {
+      category->writeTR(report_file);
     }
   }
 }
