@@ -358,6 +358,9 @@ target_compile_definitions(openroad PRIVATE BUILD_TYPE="${CMAKE_BUILD_TYPE}")
 
 # tclReadline
 if (TCL_READLINE_LIBRARY AND TCL_READLINE_H)
+  message(STATUS "gaaaaaaaaaaaaa")
+  message(STATUS "${TCL_READLINE_LIBRARY}")
+  message(STATUS "${TCL_READLINE_H}")
   target_compile_definitions(openroad PRIVATE ENABLE_READLINE)
   target_link_libraries(openroad ${TCL_READLINE_LIBRARY})
   target_include_directories(openroad PRIVATE ${TCL_READLINE_H})
